@@ -232,13 +232,7 @@ def write_outputs(
         path_df.to_excel(writer, sheet_name=PATH_SHEET, index=False)
 
 
-def render_streamlit(
-    df: pd.DataFrame,
-    windows: list[int],
-    base_summary: pd.DataFrame,
-    base_matrix: pd.DataFrame,
-    base_path: pd.DataFrame,
-) -> None:
+def render_streamlit(windows: list[int]) -> None:
     import streamlit as st
 
     st.set_page_config(page_title="Rolling Factor Minima", layout="wide")
@@ -248,7 +242,12 @@ def render_streamlit(
     )
 
     @st.cache_data(show_spinner=False)
+    def cached_load() -> pd.DataFrame:
+        return load_factors(SOURCE_XLSX)
+
+    @st.cache_data(show_spinner=False)
     def cached_pipeline(expense_bps: int) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        df = cached_load()
         adjusted_df = apply_expense(df, expense_bps)
         _, summary_df, matrix_df, path_df = run_pipeline(adjusted_df, windows)
         return summary_df, matrix_df, path_df
@@ -282,12 +281,7 @@ def render_streamlit(
         step=1,
     )
 
-    if annual_bps:
-        summary_df, matrix_df, path_df = cached_pipeline(int(annual_bps))
-    else:
-        summary_df = base_summary
-        matrix_df = base_matrix
-        path_df = base_path
+    summary_df, matrix_df, path_df = cached_pipeline(int(annual_bps))
 
     st.markdown(f"**Selected expense:** {annual_bps} bps (applied monthly).")
 
@@ -347,13 +341,13 @@ def running_in_streamlit() -> bool:
 
 
 def main() -> None:
+    if running_in_streamlit():
+        render_streamlit(WINDOWS)
+        return
+
     base_df = load_factors(SOURCE_XLSX)
     window_results, summary_df, matrix_df, path_df = run_pipeline(base_df, WINDOWS)
     write_outputs(window_results, summary_df, matrix_df, path_df)
-
-    if running_in_streamlit():
-        render_streamlit(base_df, WINDOWS, summary_df, matrix_df, path_df)
-        return
 
     preview_window = next(iter(sorted(window_results)))
     preview_df = window_results[preview_window].head()
