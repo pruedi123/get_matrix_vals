@@ -296,6 +296,10 @@ def render_streamlit(windows: list[int]) -> None:
 
     display_path = path_df.copy()
     display_path["Value x Goal"] = display_path["Value"] * goal_amount
+    display_path["Equity $"] = display_path["Value x Goal"] * (
+        display_path["EquityPercent"] / 100.0
+    )
+    display_path["Fixed Income $"] = display_path["Value x Goal"] - display_path["Equity $"]
 
     st.subheader("Allocation Path (Monotonic Equity)")
     st.dataframe(
@@ -312,6 +316,10 @@ def render_streamlit(windows: list[int]) -> None:
         )
         subset_display = subset.copy()
         subset_display["Value x Goal"] = subset_display["Value"] * goal_amount
+        subset_display["Equity $"] = subset_display["Value x Goal"] * (
+            subset_display["EquityPercent"] / 100.0
+        )
+        subset_display["Fixed Income $"] = subset_display["Value x Goal"] - subset_display["Equity $"]
         st.subheader("Goal Projection")
         st.write(
             f"Using years {int(begin_year)}–{int(end_year)} "
