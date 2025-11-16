@@ -294,10 +294,13 @@ def render_streamlit(windows: list[int]) -> None:
         use_container_width=True,
     )
 
+    display_path = path_df.copy()
+    display_path["Value x Goal"] = display_path["Value"] * goal_amount
+
     st.subheader("Allocation Path (Monotonic Equity)")
     st.dataframe(
-        path_df.set_index("Year").T,
-        height=min(400, 40 + 20 * len(path_df.columns)),
+        display_path.set_index("Year").T,
+        height=min(400, 40 + 20 * len(display_path.columns)),
         use_container_width=True,
     )
 
@@ -307,6 +310,8 @@ def render_streamlit(windows: list[int]) -> None:
         subset, total_factor, projected_amount, avg_equity, bond_alloc = calculate_goal_projection(
             path_df, goal_amount, int(begin_year), int(end_year)
         )
+        subset_display = subset.copy()
+        subset_display["Value x Goal"] = subset_display["Value"] * goal_amount
         st.subheader("Goal Projection")
         st.write(
             f"Using years {int(begin_year)}–{int(end_year)} "
@@ -317,8 +322,8 @@ def render_streamlit(windows: list[int]) -> None:
         st.write(f"- Avg equity allocation over range: {avg_equity:.2f}%")
         st.write(f"- Avg bond allocation over range: {bond_alloc:.2f}%")
         st.dataframe(
-            subset.set_index("Year").T,
-            height=min(400, 40 + 20 * len(subset.columns)),
+            subset_display.set_index("Year").T,
+            height=min(400, 40 + 20 * len(subset_display.columns)),
             use_container_width=True,
         )
 
