@@ -320,6 +320,11 @@ def render_streamlit(windows: list[int]) -> None:
             subset_display["EquityPercent"] / 100.0
         )
         subset_display["Fixed Income $"] = subset_display["Value x Goal"] - subset_display["Equity $"]
+        total_equity_dollars = subset_display["Equity $"].sum()
+        total_fixed_dollars = subset_display["Fixed Income $"].sum()
+        total_goal_cost = subset_display["Value x Goal"].sum()
+        equity_share = (total_equity_dollars / total_goal_cost * 100) if total_goal_cost else 0.0
+        fixed_share = (total_fixed_dollars / total_goal_cost * 100) if total_goal_cost else 0.0
         st.subheader("Goal Projection")
         st.write(
             f"Using years {int(begin_year)}–{int(end_year)} "
@@ -329,6 +334,8 @@ def render_streamlit(windows: list[int]) -> None:
         st.write(f"- Projected result: ${projected_amount:,.0f}")
         st.write(f"- Avg equity allocation over range: {avg_equity:.2f}%")
         st.write(f"- Avg bond allocation over range: {bond_alloc:.2f}%")
+        st.write(f"- Total equity dollars: ${total_equity_dollars:,.0f} ({equity_share:.2f}%)")
+        st.write(f"- Total fixed-income dollars: ${total_fixed_dollars:,.0f} ({fixed_share:.2f}%)")
         st.dataframe(
             subset_display.set_index("Year").T,
             height=min(400, 40 + 20 * len(subset_display.columns)),
