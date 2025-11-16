@@ -16,7 +16,7 @@ OUTPUT_XLSX = SOURCE_XLSX.with_name(f"{SOURCE_XLSX.stem}_rolling_windows.xlsx")
 SUMMARY_SHEET = "rolling_minima"
 MATRIX_SHEET = "minima_matrix"
 PATH_SHEET = "allocation_path"
-DEFAULT_GOAL_AMOUNT = 1.0
+DEFAULT_GOAL_AMOUNT = 50000
 DEFAULT_BEGIN_YEAR = 0
 DEFAULT_END_YEAR = 29
 
