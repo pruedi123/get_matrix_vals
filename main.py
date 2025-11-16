@@ -332,8 +332,6 @@ def render_streamlit(windows: list[int]) -> None:
         )
         st.write(f"- Sum of Value row: ${total_factor:,.2f}")
         st.write(f"- Projected result: ${projected_amount:,.0f}")
-        st.write(f"- Avg equity allocation over range: {avg_equity:.2f}%")
-        st.write(f"- Avg bond allocation over range: {bond_alloc:.2f}%")
         st.write(f"- Total equity dollars: ${total_equity_dollars:,.0f} ({equity_share:.2f}%)")
         st.write(f"- Total fixed-income dollars: ${total_fixed_dollars:,.0f} ({fixed_share:.2f}%)")
         st.dataframe(
@@ -396,7 +394,6 @@ def main() -> None:
         f"goal ${DEFAULT_GOAL_AMOUNT:,.2f}): sum ${total_factor:,.2f}, "
         f"projected ${projected_amount:,.0f}"
     )
-    print(f"Avg equity allocation: {avg_equity:.2f}%; Avg bond allocation: {bond_alloc:.2f}%")
 
 
 if __name__ == "__main__":
