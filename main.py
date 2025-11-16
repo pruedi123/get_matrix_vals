@@ -36,37 +36,44 @@ def load_factors(path: Path) -> pd.DataFrame:
     return df
 
 
+def get_factor_cols(df: pd.DataFrame) -> list[str]:
+    return [col for col in df.columns if col != "Date"]
+
+
 def apply_expense(df: pd.DataFrame, annual_bps: float) -> pd.DataFrame:
     """Reduce monthly factors by the chosen expense in basis points."""
     if annual_bps <= 0:
         return df
 
     monthly_rate = (annual_bps / 10000) / 12
-    factor_cols = [col for col in df.columns if col != "Date"]
+    factor_cols = get_factor_cols(df)
     adjusted = df.copy()
-    adjusted[factor_cols] = adjusted[factor_cols] * (1 - monthly_rate)
+    adjusted.loc[:, factor_cols] *= (1 - monthly_rate)
     return adjusted
 
 
 def compute_rolling_products(
     df: pd.DataFrame, factor_cols: list[str], window: int
 ) -> pd.DataFrame:
-    """Return the rolling window products for every LBM column."""
-    rolling = (
-        df.set_index("Date")[factor_cols]
+    """Return the rolling window products for every LBM column using log-sums."""
+    log_df = df[["Date"] + factor_cols].copy()
+    log_df.loc[:, factor_cols] = np.log(log_df[factor_cols])
+
+    rolling_sum = (
+        log_df.set_index("Date")[factor_cols]
         .rolling(window=window, min_periods=window)
-        .apply(np.prod, raw=True)
+        .sum()
         .dropna(how="all")
-        .reset_index()
     )
-    return rolling
+    rolling_prod = np.exp(rolling_sum)
+    return rolling_prod.reset_index()
 
 
 def calculate_window_summaries(
     df: pd.DataFrame, windows: list[int]
 ) -> tuple[dict[int, pd.DataFrame], pd.DataFrame]:
     """Compute rolling products and minima for each requested window size."""
-    factor_cols = [col for col in df.columns if col != "Date"]
+    factor_cols = get_factor_cols(df)
     if not factor_cols:
         raise ValueError("No LBM columns were found in the worksheet.")
 
@@ -240,6 +247,12 @@ def render_streamlit(
         "Products of monthly factors by allocation, using rolling periods from 1 to 40 years."
     )
 
+    @st.cache_data(show_spinner=False)
+    def cached_pipeline(expense_bps: int) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        adjusted_df = apply_expense(df, expense_bps)
+        _, summary_df, matrix_df, path_df = run_pipeline(adjusted_df, windows)
+        return summary_df, matrix_df, path_df
+
     st.sidebar.header("Controls")
     annual_bps = st.sidebar.slider(
         "Annual Expense (basis points)",
@@ -270,12 +283,11 @@ def render_streamlit(
     )
 
     if annual_bps:
-        adjusted_df = apply_expense(df, annual_bps)
-        _, summary_df, matrix_df, path_df = run_pipeline(adjusted_df, windows)
+        summary_df, matrix_df, path_df = cached_pipeline(int(annual_bps))
     else:
-        summary_df = base_summary.copy()
-        matrix_df = base_matrix.copy()
-        path_df = base_path.copy()
+        summary_df = base_summary
+        matrix_df = base_matrix
+        path_df = base_path
 
     st.markdown(f"**Selected expense:** {annual_bps} bps (applied monthly).")
 
@@ -304,8 +316,8 @@ def render_streamlit(
             f"Using years {int(begin_year)}–{int(end_year)} "
             f"({len(subset)} periods) and goal ${goal_amount:,.2f}:"
         )
-        st.write(f"- Sum of Value row: {total_factor:,.6f}")
-        st.write(f"- Projected result: ${projected_amount:,.6f}")
+        st.write(f"- Sum of Value row: ${total_factor:,.2f}")
+        st.write(f"- Projected result: ${projected_amount:,.0f}")
         st.dataframe(
             subset.set_index("Year").T,
             height=min(400, 40 + 20 * len(subset.columns)),
@@ -358,6 +370,14 @@ def main() -> None:
     print(matrix_df.head())
     print("Allocation path preview:")
     print(path_df.head().T)
+    subset, total_factor, projected_amount = calculate_goal_projection(
+        path_df, DEFAULT_GOAL_AMOUNT, DEFAULT_BEGIN_YEAR, DEFAULT_END_YEAR
+    )
+    print(
+        f"Goal projection (years {DEFAULT_BEGIN_YEAR}-{DEFAULT_END_YEAR}, "
+        f"goal ${DEFAULT_GOAL_AMOUNT:,.2f}): sum ${total_factor:,.2f}, "
+        f"projected ${projected_amount:,.0f}"
+    )
 
 
 if __name__ == "__main__":
