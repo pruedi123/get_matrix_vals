@@ -197,7 +197,7 @@ def compute_allocation_path(matrix_df: pd.DataFrame) -> pd.DataFrame:
 
 def calculate_goal_projection(
     path_df: pd.DataFrame, goal_amount: float, start_year: int, end_year: int
-) -> tuple[pd.DataFrame, float, float]:
+) -> tuple[pd.DataFrame, float, float, float, float]:
     if start_year > end_year:
         raise ValueError("Start year must be less than or equal to end year.")
 
@@ -206,7 +206,9 @@ def calculate_goal_projection(
     ].copy()
     total_factor = subset["Value"].sum()
     projected_amount = total_factor * goal_amount
-    return subset, total_factor, projected_amount
+    avg_equity = subset["EquityPercent"].mean()
+    bond_allocation = 100 - avg_equity
+    return subset, total_factor, projected_amount, avg_equity, bond_allocation
 
 
 def _parse_year_number(label: str) -> int:
@@ -302,7 +304,7 @@ def render_streamlit(windows: list[int]) -> None:
     if end_year < begin_year:
         st.error("End Year must be greater than or equal to Begin Year.")
     else:
-        subset, total_factor, projected_amount = calculate_goal_projection(
+        subset, total_factor, projected_amount, avg_equity, bond_alloc = calculate_goal_projection(
             path_df, goal_amount, int(begin_year), int(end_year)
         )
         st.subheader("Goal Projection")
@@ -312,6 +314,8 @@ def render_streamlit(windows: list[int]) -> None:
         )
         st.write(f"- Sum of Value row: ${total_factor:,.2f}")
         st.write(f"- Projected result: ${projected_amount:,.0f}")
+        st.write(f"- Avg equity allocation over range: {avg_equity:.2f}%")
+        st.write(f"- Avg bond allocation over range: {bond_alloc:.2f}%")
         st.dataframe(
             subset.set_index("Year").T,
             height=min(400, 40 + 20 * len(subset.columns)),
@@ -364,7 +368,7 @@ def main() -> None:
     print(matrix_df.head())
     print("Allocation path preview:")
     print(path_df.head().T)
-    subset, total_factor, projected_amount = calculate_goal_projection(
+    subset, total_factor, projected_amount, avg_equity, bond_alloc = calculate_goal_projection(
         path_df, DEFAULT_GOAL_AMOUNT, DEFAULT_BEGIN_YEAR, DEFAULT_END_YEAR
     )
     print(
@@ -372,6 +376,7 @@ def main() -> None:
         f"goal ${DEFAULT_GOAL_AMOUNT:,.2f}): sum ${total_factor:,.2f}, "
         f"projected ${projected_amount:,.0f}"
     )
+    print(f"Avg equity allocation: {avg_equity:.2f}%; Avg bond allocation: {bond_alloc:.2f}%")
 
 
 if __name__ == "__main__":
