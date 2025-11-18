@@ -312,6 +312,7 @@ def write_outputs(
 
 def render_streamlit(windows: list[int]) -> None:
     import streamlit as st
+    import altair as alt
 
     st.set_page_config(page_title="Rolling Factor Minima", layout="wide")
     st.title("Rolling Factor Minimum Matrix")
@@ -514,17 +515,43 @@ def render_streamlit(windows: list[int]) -> None:
         height=min(700, 40 + 20 * len(income_display)),
         use_container_width=True,
     )
-    income_chart_choice = st.radio(
-        "Income chart series",
-        options=["Nominal Income", "Real Income (at CPI percentile)", "Both"],
-        index=2,
-        horizontal=True,
+    # Diverging bridge: nominal bar with inflation drag overlay (negative delta).
+    delta_df = income_df.copy()
+    delta_df["Inflation Drag"] = delta_df["Real Income (at CPI percentile)"] - delta_df["Nominal Income"]
+    chart_data = delta_df.melt(
+        id_vars=["Year", "Real Income (at CPI percentile)"],
+        value_vars=["Nominal Income", "Inflation Drag"],
+        var_name="Series",
+        value_name="Value",
     )
-    if income_chart_choice == "Both":
-        income_chart_df = income_df.set_index("Year")[["Nominal Income", "Real Income (at CPI percentile)"]]
-    else:
-        income_chart_df = income_df.set_index("Year")[[income_chart_choice]]
-    st.line_chart(income_chart_df, height=240)
+    bar_chart = (
+        alt.Chart(chart_data)
+        .mark_bar(size=12)
+        .encode(
+            x=alt.X(
+                "Year:O",
+                title="Year",
+                scale=alt.Scale(paddingInner=0.1, paddingOuter=0.05),
+            ),
+            y=alt.Y("Value:Q", title="Income ($)"),
+            color=alt.Color(
+                "Series:N",
+                title="Component",
+                scale=alt.Scale(
+                    domain=["Nominal Income", "Inflation Drag"],
+                    range=["#cfcfcf", "#d62728"],
+                ),
+            ),
+            tooltip=[
+                "Year:O",
+                "Series:N",
+                alt.Tooltip("Value:Q", format=",.0f", title="Component $"),
+                alt.Tooltip("Real Income (at CPI percentile):Q", format=",.0f", title="Real Income"),
+            ],
+        )
+        .properties(height=280)
+    )
+    st.altair_chart(bar_chart, use_container_width=True)
 
 
 def running_in_streamlit() -> bool:
