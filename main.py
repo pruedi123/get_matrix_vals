@@ -19,6 +19,10 @@ PATH_SHEET = "allocation_path"
 DEFAULT_GOAL_AMOUNT = 50000
 DEFAULT_BEGIN_YEAR = 0
 DEFAULT_END_YEAR = 29
+CPI_SOURCE_XLSX = Path(__file__).with_name("cpi_mo_factors.xlsx")
+CPI_SHEET = 0
+CPI_PERCENTILE_DEFAULT = 50
+CPI_OUTPUT_SHEET = "cpi_inverse_percentile"
 
 
 def load_factors(path: Path) -> pd.DataFrame:
@@ -38,6 +42,24 @@ def load_factors(path: Path) -> pd.DataFrame:
 
 def get_factor_cols(df: pd.DataFrame) -> list[str]:
     return [col for col in df.columns if col != "Date"]
+
+
+def load_cpi_factors(path: Path, sheet: str | int = CPI_SHEET) -> pd.DataFrame:
+    """Load monthly CPI factors."""
+    if not path.exists():
+        raise FileNotFoundError(f"Workbook not found: {path}")
+
+    df = pd.read_excel(path, sheet_name=sheet)
+    df.columns = [col.strip() if isinstance(col, str) else col for col in df.columns]
+    if "Date" not in df.columns:
+        raise ValueError("Expected a 'Date' column in the CPI worksheet.")
+    factor_cols = get_factor_cols(df)
+    if len(factor_cols) != 1:
+        raise ValueError(f"Expected exactly one CPI factor column, found {factor_cols}.")
+
+    df = df.dropna(subset=["Date"]).copy()
+    df["Date"] = pd.to_datetime(df["Date"])
+    return df
 
 
 def apply_expense(df: pd.DataFrame, annual_bps: float) -> pd.DataFrame:
@@ -218,11 +240,63 @@ def _parse_year_number(label: str) -> int:
     raise ValueError(f"Unable to parse year number from '{label}'.")
 
 
+def calculate_cpi_inverse_percentiles(
+    df: pd.DataFrame, windows: list[int], percentile: float = CPI_PERCENTILE_DEFAULT
+) -> pd.DataFrame:
+    """Percentile of compounded CPI (price level) and its inverse (real $1) for each window."""
+    factor_cols = get_factor_cols(df)
+    if len(factor_cols) != 1:
+        raise ValueError(f"Expected exactly one CPI factor column, found {factor_cols}.")
+    factor_col = factor_cols[0]
+
+    log_series = np.log(df[factor_col])
+    records: list[dict[str, float]] = []
+
+    for window in windows:
+        rolling_sum = (
+            log_series.rolling(window=window, min_periods=window)
+            .sum()
+            .dropna()
+        )
+        if rolling_sum.empty:
+            continue
+        compounded = np.exp(rolling_sum)
+        percentile_compounded = float(np.percentile(compounded, percentile))
+        real_value = 1 / percentile_compounded if percentile_compounded != 0 else np.nan
+        records.append(
+            {
+                "WindowYears": window // 12,
+                "WindowMonths": window,
+                "Percentile": percentile,
+                "Real Ending Value": percentile_compounded,
+                "Increase In Cost Factor": real_value,
+            }
+        )
+
+    if not records:
+        raise ValueError("No CPI percentile values could be calculated with the data provided.")
+
+    df_out = (
+        pd.DataFrame(records)
+        .sort_values("WindowMonths")
+        .reset_index(drop=True)
+    )
+    ordered_cols = [
+        "WindowYears",
+        "WindowMonths",
+        "Percentile",
+        "Real Ending Value",
+        "Increase In Cost Factor",
+    ]
+    return df_out[ordered_cols]
+
+
 def write_outputs(
     window_results: dict[int, pd.DataFrame],
     summary_df: pd.DataFrame,
     matrix_df: pd.DataFrame,
     path_df: pd.DataFrame,
+    cpi_percentiles_df: pd.DataFrame | None = None,
 ) -> None:
     """Persist each rolling window plus the minima summary to a workbook."""
     with pd.ExcelWriter(OUTPUT_XLSX) as writer:
@@ -232,6 +306,8 @@ def write_outputs(
         summary_df.to_excel(writer, sheet_name=SUMMARY_SHEET, index=False)
         matrix_df.reset_index().to_excel(writer, sheet_name=MATRIX_SHEET, index=False)
         path_df.to_excel(writer, sheet_name=PATH_SHEET, index=False)
+        if cpi_percentiles_df is not None:
+            cpi_percentiles_df.to_excel(writer, sheet_name=CPI_OUTPUT_SHEET, index=False)
 
 
 def render_streamlit(windows: list[int]) -> None:
@@ -253,6 +329,16 @@ def render_streamlit(windows: list[int]) -> None:
         adjusted_df = apply_expense(df, expense_bps)
         _, summary_df, matrix_df, path_df = run_pipeline(adjusted_df, windows)
         return summary_df, matrix_df, path_df
+
+    @st.cache_data(show_spinner=False)
+    def cached_load_cpi() -> pd.DataFrame:
+        return load_cpi_factors(CPI_SOURCE_XLSX)
+
+    @st.cache_data(show_spinner=False)
+    def cached_cpi_percentiles(percentile: float, version: int = 2) -> pd.DataFrame:
+        """Cached CPI percentiles; version bump forces refresh when schema changes."""
+        cpi_df = cached_load_cpi()
+        return calculate_cpi_inverse_percentiles(cpi_df, windows, percentile=percentile)
 
     st.sidebar.header("Controls")
     annual_bps = st.sidebar.slider(
@@ -282,8 +368,42 @@ def render_streamlit(windows: list[int]) -> None:
         value=DEFAULT_END_YEAR,
         step=1,
     )
+    cpi_percentile = st.sidebar.slider(
+        "CPI Percentile (real $ value)",
+        min_value=0,
+        max_value=100,
+        value=int(CPI_PERCENTILE_DEFAULT),
+        step=5,
+    )
+    income_amount = st.sidebar.number_input(
+        "Income Stream (annual $)",
+        min_value=0.0,
+        value=10000.0,
+        step=100.0,
+    )
+    cola_percent = st.sidebar.slider(
+        "Annual COLA (%)",
+        min_value=-5.0,
+        max_value=10.0,
+        value=0.0,
+        step=0.5,
+    )
 
     summary_df, matrix_df, path_df = cached_pipeline(int(annual_bps))
+    cpi_percentiles_df = cached_cpi_percentiles(float(cpi_percentile), version=3)
+    # Backward-compat for old cache/columns
+    if "Increase In Cost Factor" not in cpi_percentiles_df.columns:
+        if "RealDollarValue" in cpi_percentiles_df.columns:
+            cpi_percentiles_df = cpi_percentiles_df.rename(columns={"RealDollarValue": "Increase In Cost Factor"})
+        elif "InverseFactor" in cpi_percentiles_df.columns:
+            cpi_percentiles_df = cpi_percentiles_df.rename(columns={"InverseFactor": "Increase In Cost Factor"})
+        elif "CompoundedCPI" in cpi_percentiles_df.columns:
+            cpi_percentiles_df["Increase In Cost Factor"] = 1 / cpi_percentiles_df["CompoundedCPI"]
+    if "Real Ending Value" not in cpi_percentiles_df.columns:
+        if "PriceLevelFactor" in cpi_percentiles_df.columns:
+            cpi_percentiles_df = cpi_percentiles_df.rename(columns={"PriceLevelFactor": "Real Ending Value"})
+        elif "CompoundedCPI" in cpi_percentiles_df.columns:
+            cpi_percentiles_df = cpi_percentiles_df.rename(columns={"CompoundedCPI": "Real Ending Value"})
 
     st.markdown(f"**Selected expense:** {annual_bps} bps (applied monthly).")
 
@@ -343,6 +463,66 @@ def render_streamlit(windows: list[int]) -> None:
     st.subheader("Underlying Window Minima")
     st.dataframe(summary_df, height=min(700, 40 + 20 * len(summary_df)), use_container_width=True)
 
+    st.subheader(
+        f"CPI price level percentile (p{int(cpi_percentile)}) "
+        "(Real Ending Value) and real value of $1 (Increase In Cost Factor)"
+    )
+    cpi_display = cpi_percentiles_df.copy()
+    # Place Real Ending Value as the last column
+    reordered_cols = [
+        "WindowYears",
+        "WindowMonths",
+        "Percentile",
+        "Increase In Cost Factor",
+        "Real Ending Value",
+    ]
+    cpi_display = cpi_display[reordered_cols]
+    st.dataframe(cpi_display, height=min(700, 40 + 20 * len(cpi_display)), use_container_width=True)
+
+    chart_choice = st.radio(
+        "CPI chart series",
+        options=["Increase In Cost Factor", "Real Ending Value", "Both"],
+        index=0,
+        horizontal=True,
+    )
+    if chart_choice == "Both":
+        chart_df = cpi_display.set_index("WindowYears")[["Increase In Cost Factor", "Real Ending Value"]]
+    else:
+        chart_df = cpi_display.set_index("WindowYears")[[chart_choice]]
+    st.line_chart(chart_df, height=240)
+
+    st.subheader("Indexed income stream (nominal + COLA, then deflated by CPI percentile)")
+    cola_rate = cola_percent / 100.0
+    income_rows: list[dict[str, float]] = []
+    for _, row in cpi_display.iterrows():
+        year = int(row["WindowYears"])
+        nominal_income = income_amount * ((1 + cola_rate) ** year)
+        real_income = nominal_income * row["Real Ending Value"]
+        income_rows.append(
+            {
+                "Year": year,
+                "Nominal Income": nominal_income,
+                "Real Income (at CPI percentile)": real_income,
+            }
+        )
+    income_df = pd.DataFrame(income_rows)
+    st.dataframe(
+        income_df,
+        height=min(700, 40 + 20 * len(income_df)),
+        use_container_width=True,
+    )
+    income_chart_choice = st.radio(
+        "Income chart series",
+        options=["Nominal Income", "Real Income (at CPI percentile)", "Both"],
+        index=2,
+        horizontal=True,
+    )
+    if income_chart_choice == "Both":
+        income_chart_df = income_df.set_index("Year")[["Nominal Income", "Real Income (at CPI percentile)"]]
+    else:
+        income_chart_df = income_df.set_index("Year")[[income_chart_choice]]
+    st.line_chart(income_chart_df, height=240)
+
 
 def running_in_streamlit() -> bool:
     if os.environ.get("STREAMLIT_SERVER_ENABLED") == "1":
@@ -368,8 +548,12 @@ def main() -> None:
         return
 
     base_df = load_factors(SOURCE_XLSX)
+    cpi_df = load_cpi_factors(CPI_SOURCE_XLSX)
     window_results, summary_df, matrix_df, path_df = run_pipeline(base_df, WINDOWS)
-    write_outputs(window_results, summary_df, matrix_df, path_df)
+    cpi_percentiles_df = calculate_cpi_inverse_percentiles(
+        cpi_df, WINDOWS, percentile=CPI_PERCENTILE_DEFAULT
+    )
+    write_outputs(window_results, summary_df, matrix_df, path_df, cpi_percentiles_df)
 
     preview_window = next(iter(sorted(window_results)))
     preview_df = window_results[preview_window].head()
@@ -386,6 +570,8 @@ def main() -> None:
     print(matrix_df.head())
     print("Allocation path preview:")
     print(path_df.head().T)
+    print(f"CPI inverse percentile preview (p{CPI_PERCENTILE_DEFAULT}):")
+    print(cpi_percentiles_df.head())
     subset, total_factor, projected_amount, avg_equity, bond_alloc = calculate_goal_projection(
         path_df, DEFAULT_GOAL_AMOUNT, DEFAULT_BEGIN_YEAR, DEFAULT_END_YEAR
     )
