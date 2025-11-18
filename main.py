@@ -423,10 +423,19 @@ def render_streamlit(windows: list[int]) -> None:
     display_path["Fixed Income $"] = display_path["Value x Goal"] - display_path["Equity $"]
 
     st.subheader("Allocation Path (Monotonic Equity)")
+    display_path_formatted = display_path.copy()
+    display_path_formatted["Value"] = display_path_formatted["Value"].map(lambda x: f"{x:.4f}")
+    display_path_formatted["Value x Goal"] = display_path["Value x Goal"].round(0).map(
+        lambda x: f"${x:,.0f}"
+    )
     st.dataframe(
-        display_path.set_index("Year").T,
-        height=min(400, 40 + 20 * len(display_path.columns)),
+        display_path_formatted.set_index("Year").T,
+        height=min(400, 40 + 20 * len(display_path_formatted.columns)),
         use_container_width=True,
+    )
+    st.line_chart(
+        path_df.set_index("Year")["EquityPercent"],
+        height=200,
     )
 
     if end_year < begin_year:
