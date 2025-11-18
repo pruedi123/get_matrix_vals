@@ -506,9 +506,12 @@ def render_streamlit(windows: list[int]) -> None:
             }
         )
     income_df = pd.DataFrame(income_rows)
+    income_display = income_df.copy()
+    for col in ["Nominal Income", "Real Income (at CPI percentile)"]:
+        income_display[col] = income_display[col].round(0).map(lambda x: f"${x:,.0f}")
     st.dataframe(
-        income_df,
-        height=min(700, 40 + 20 * len(income_df)),
+        income_display,
+        height=min(700, 40 + 20 * len(income_display)),
         use_container_width=True,
     )
     income_chart_choice = st.radio(
