@@ -423,16 +423,17 @@ def render_streamlit(windows: list[int]) -> None:
     display_path["Fixed Income $"] = display_path["Value x Goal"] - display_path["Equity $"]
 
     st.subheader("Allocation Path (Monotonic Equity)")
-    display_path_formatted = display_path.copy()
-    display_path_formatted["Value"] = display_path_formatted["Value"].map(lambda x: f"{x:.4f}")
-    display_path_formatted["Value x Goal"] = display_path["Value x Goal"].round(0).map(
-        lambda x: f"${x:,.0f}"
-    )
-    st.dataframe(
-        display_path_formatted.set_index("Year").T,
-        height=min(400, 40 + 20 * len(display_path_formatted.columns)),
-        use_container_width=True,
-    )
+    if st.checkbox("Show allocation path table", value=True):
+        display_path_formatted = display_path.copy()
+        display_path_formatted["Value"] = display_path_formatted["Value"].map(lambda x: f"{x:.4f}")
+        display_path_formatted["Value x Goal"] = display_path["Value x Goal"].round(0).map(
+            lambda x: f"${x:,.0f}"
+        )
+        st.dataframe(
+            display_path_formatted.set_index("Year").T,
+            height=min(400, 40 + 20 * len(display_path_formatted.columns)),
+            use_container_width=True,
+        )
     st.line_chart(
         path_df.set_index("Year")["EquityPercent"],
         height=200,
@@ -471,7 +472,8 @@ def render_streamlit(windows: list[int]) -> None:
         )
 
     st.subheader("Underlying Window Minima")
-    st.dataframe(summary_df, height=min(700, 40 + 20 * len(summary_df)), use_container_width=True)
+    if st.checkbox("Show underlying minima table", value=True):
+        st.dataframe(summary_df, height=min(700, 40 + 20 * len(summary_df)), use_container_width=True)
 
     st.subheader(
         f"CPI price level percentile (p{int(cpi_percentile)}) "
@@ -487,12 +489,13 @@ def render_streamlit(windows: list[int]) -> None:
         "Real Ending Value",
     ]
     cpi_display = cpi_display[reordered_cols]
-    st.dataframe(cpi_display, height=min(700, 40 + 20 * len(cpi_display)), use_container_width=True)
+    if st.checkbox("Show CPI table", value=True):
+        st.dataframe(cpi_display, height=min(700, 40 + 20 * len(cpi_display)), use_container_width=True)
 
     chart_choice = st.radio(
         "CPI chart series",
         options=["Increase In Cost Factor", "Real Ending Value", "Both"],
-        index=0,
+        index=1,
         horizontal=True,
     )
     if chart_choice == "Both":
