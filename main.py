@@ -498,11 +498,21 @@ def render_streamlit(windows: list[int]) -> None:
         index=1,
         horizontal=True,
     )
+    percentile_label = f"Using CPI percentile p{int(cpi_percentile)} for chart and table."
+    st.caption(percentile_label)
     if chart_choice == "Both":
         chart_df = cpi_display.set_index("WindowYears")[["Increase In Cost Factor", "Real Ending Value"]]
     else:
         chart_df = cpi_display.set_index("WindowYears")[[chart_choice]]
     st.line_chart(chart_df, height=240)
+    chart_table = chart_df.T
+    chart_table.index.name = "Series"
+    chart_table = chart_table.reset_index()
+    st.dataframe(
+        chart_table,
+        use_container_width=True,
+        height=min(400, 40 + 28 * len(chart_table)),
+    )
 
     st.subheader("Indexed income stream (nominal + COLA, then deflated by CPI percentile)")
     cola_rate = cola_percent / 100.0
