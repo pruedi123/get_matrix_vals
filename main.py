@@ -505,13 +505,12 @@ def render_streamlit(windows: list[int]) -> None:
     else:
         chart_df = cpi_display.set_index("WindowYears")[[chart_choice]]
     st.line_chart(chart_df, height=240)
-    chart_table = chart_df.T
-    chart_table.index.name = "Series"
-    chart_table = chart_table.reset_index()
+    chart_table = chart_df.reset_index().rename(columns={"WindowYears": "Year"})
     st.dataframe(
         chart_table,
         use_container_width=True,
         height=min(400, 40 + 28 * len(chart_table)),
+        column_config={"Year": st.column_config.NumberColumn(format="%d")},
     )
 
     st.subheader("Indexed income stream (nominal + COLA, then deflated by CPI percentile)")
